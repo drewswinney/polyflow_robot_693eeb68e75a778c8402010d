@@ -116,36 +116,6 @@
         turnServerPassword = getValue "TURN_SERVER_PASSWORD" "password";
       };
 
-    # Helper script to decrypt metadata.json and export as environment variables
-    # Usage: eval $(nix run .#decrypt-and-export-metadata)
-    decryptAndExportMetadata = pkgs.writeShellScriptBin "decrypt-and-export-metadata" ''
-      set -euo pipefail
-
-      METADATA_FILE="./metadata.json"
-      SOPS_KEY_FILE="./sopskey.txt"
-
-      if [ ! -f "$METADATA_FILE" ]; then
-        echo "ERROR: metadata.json not found" >&2
-        exit 1
-      fi
-
-      if [ ! -f "$SOPS_KEY_FILE" ]; then
-        echo "ERROR: sopskey.txt not found" >&2
-        exit 1
-      fi
-
-      export SOPS_AGE_KEY_FILE="$SOPS_KEY_FILE"
-      DECRYPTED=$(${pkgs.sops}/bin/sops -d "$METADATA_FILE")
-
-      echo "export ROBOT_ID='$(echo "$DECRYPTED" | ${pkgs.jq}/bin/jq -r '.ROBOT_ID // empty')'"
-      echo "export SIGNALING_URL='$(echo "$DECRYPTED" | ${pkgs.jq}/bin/jq -r '.SIGNALING_URL // empty')'"
-      echo "export PASSWORD='$(echo "$DECRYPTED" | ${pkgs.jq}/bin/jq -r '.PASSWORD // empty')'"
-      echo "export GITHUB_USER='$(echo "$DECRYPTED" | ${pkgs.jq}/bin/jq -r '.GITHUB_USER // empty')'"
-      echo "export TURN_SERVER_URL='$(echo "$DECRYPTED" | ${pkgs.jq}/bin/jq -r '.TURN_SERVER_URL // empty')'"
-      echo "export TURN_SERVER_USERNAME='$(echo "$DECRYPTED" | ${pkgs.jq}/bin/jq -r '.TURN_SERVER_USERNAME // empty')'"
-      echo "export TURN_SERVER_PASSWORD='$(echo "$DECRYPTED" | ${pkgs.jq}/bin/jq -r '.TURN_SERVER_PASSWORD // empty')'"
-    '';
-
     ############################################################################
     # Workspace discovery
     ############################################################################
@@ -562,52 +532,24 @@ EOF
       rosRuntimeEnv  = rosRuntimeEnv;
       systemRosWorkspace = systemRosWorkspace;
       systemRosRuntimeEnv = systemRosRuntimeEnv;
-      decrypt-and-export-metadata = decryptAndExportMetadata;
     };
 
     # Full NixOS config for Pi 4 (sd-image)
     nixosConfigurations.rpi4 =
-      let
-        # Check for optional secret files that may be injected at build time
-        # These files are NOT in the repo, but may be copied into the build directory
-        # Support both environment variables (absolute paths) and relative paths
-        metadataJsonEnv = builtins.getEnv "METADATA_JSON_PATH";
-        sopsKeyEnv = builtins.getEnv "SOPS_KEY_PATH";
-
-        metadataJsonPath = if metadataJsonEnv != "" then /. + metadataJsonEnv else ./metadata.json.age;
-        sopsKeyPath = if sopsKeyEnv != "" then /. + sopsKeyEnv else ./sops-key.txt;
-
-        metadataJsonExists = builtins.pathExists metadataJsonPath;
-        sopsKeyExists = builtins.pathExists sopsKeyPath;
-      in
-      builtins.trace "Metadata values before loading configuration.nix:" (
-      builtins.trace "  robotId: ${builtins.toString metadata.robotId}" (
-      builtins.trace "  signalingUrl: ${builtins.toString metadata.signalingUrl}" (
-      builtins.trace "  password: ${builtins.toString metadata.password}" (
-      builtins.trace "  githubUser: ${builtins.toString metadata.githubUser}" (
-      builtins.trace "  turnServerUrl: ${builtins.toString metadata.turnServerUrl}" (
-      builtins.trace "  turnServerUsername: ${builtins.toString metadata.turnServerUsername}" (
-      builtins.trace "  turnServerPassword: ${builtins.toString metadata.turnServerPassword}" (
-      builtins.trace "[FLAKE] metadata.json.age path check: ${if metadataJsonExists then "FOUND" else "NOT FOUND"}" (
-      builtins.trace "[FLAKE] sops-key.txt path check: ${if sopsKeyExists then "FOUND" else "NOT FOUND"}" (
-        nixpkgs.lib.nixosSystem {
-          inherit system;
-          specialArgs = {
-            inherit pyEnv robotConsole robotApi rosWorkspace rosRuntimeEnv systemRosWorkspace systemRosRuntimeEnv metadata;
-            # Pass file paths if they exist, otherwise null
-            metadataJsonFile = if metadataJsonExists then metadataJsonPath else null;
-            sopsKeyFile = if sopsKeyExists then sopsKeyPath else null;
-          };
-          modules = [
-            ({ ... }: {
-              nixpkgs.overlays =
-                rosOverlays ++ [ rosWorkspaceOverlay pinPython312 ];
-            })
-            sops-nix.nixosModules.sops
-            nixos-hardware.nixosModules.raspberry-pi-4
-            ./configuration.nix
-          ];
-        }
-      ))))))))));
-  };
+      nixpkgs.lib.nixosSystem {
+        inherit system;
+        specialArgs = {
+          inherit pyEnv robotConsole robotApi rosWorkspace rosRuntimeEnv systemRosWorkspace systemRosRuntimeEnv metadata;
+        };
+        modules = [
+          ({ ... }: {
+            nixpkgs.overlays =
+              rosOverlays ++ [ rosWorkspaceOverlay pinPython312 ];
+          })
+          sops-nix.nixosModules.sops
+          nixos-hardware.nixosModules.raspberry-pi-4
+          ./configuration.nix
+        ];
+      };
+  }
 }
