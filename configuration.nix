@@ -1,4 +1,4 @@
-{ config, pkgs, lib, pyEnv, robotConsole, robotApi, rosWorkspace, rosRuntimeEnv, systemRosWorkspace, systemRosRuntimeEnv, metadata, metadataJsonFile ? null, sopsKeyFile ? null, ... }:
+{ config, pkgs, lib, pyEnv, robotConsole, robotApi, rosWorkspace, rosRuntimeEnv, systemRosWorkspace, systemRosRuntimeEnv, metadata, ... }:
 
 let
   user      = "admin";
@@ -169,55 +169,35 @@ in
     })
   ];
 
-  # Copy metadata.json into the image if it exists
+  # Copy metadata.json.age into the image from the repo
   environment.etc."polyflow/metadata.json.age" =
     let
-      fileExists = metadataJsonFile != null;
-      result = if fileExists then "true (from specialArgs)" else "false";
+      filePath = ./metadata.json.age;
+      fileExists = builtins.pathExists filePath;
+      result = if fileExists then "true (from repo)" else "false";
     in
     builtins.trace "[BUILD] metadata.json.age exists: ${result}"
     (lib.mkIf fileExists {
-      source = metadataJsonFile;
+      source = filePath;
       mode = "0400";  # Read-only for root
     });
 
+  # Copy sops-key.txt into the image from the repo
   environment.etc."polyflow/sops-key.txt" =
     let
-      fileExists = sopsKeyFile != null;
-      result = if fileExists then "true (from specialArgs)" else "false";
+      filePath = ./sops-key.txt;
+      fileExists = builtins.pathExists filePath;
+      result = if fileExists then "true (from repo)" else "false";
     in
     builtins.trace "[BUILD] sops-key.txt exists: ${result}"
     (lib.mkIf fileExists {
-      source = sopsKeyFile;
+      source = filePath;
       mode = "0400";  # Read-only for root
     });
 
-  # Activation script to log polyflow file setup
-  system.activationScripts.polyflowSetup = lib.stringAfter [ "etc" ] ''
-    echo "[polyflow-setup] Checking /etc/polyflow directory..."
-    if [ -d /etc/polyflow ]; then
-      echo "[polyflow-setup] /etc/polyflow exists"
-      ls -lah /etc/polyflow/ || echo "[polyflow-setup] Failed to list /etc/polyflow"
-
-      if [ -f /etc/polyflow/metadata.json.age ]; then
-        echo "[polyflow-setup] ✓ metadata.json.age found ($(stat -c%s /etc/polyflow/metadata.json.age 2>/dev/null || stat -f%z /etc/polyflow/metadata.json.age) bytes)"
-      else
-        echo "[polyflow-setup] ✗ metadata.json.age not found"
-      fi
-
-      if [ -f /etc/polyflow/sops-key.txt ]; then
-        echo "[polyflow-setup] ✓ sops-key.txt found ($(stat -c%s /etc/polyflow/sops-key.txt 2>/dev/null || stat -f%z /etc/polyflow/sops-key.txt) bytes)"
-      else
-        echo "[polyflow-setup] ✗ sops-key.txt not found"
-      fi
-    else
-      echo "[polyflow-setup] ✗ /etc/polyflow directory does not exist!"
-    fi
-  '';
-
   # SOPS configuration for runtime secrets
   # Build-time: hostname and non-sensitive config come from environment variables (baked into image)
-  # Runtime: the encrypted metadata.json is available at /etc/polyflow/metadata.json
+  # Runtime: the encrypted metadata.json is available at /etc/polyflow/metadata.json.age
   #          and can be decrypted using sops-nix, making secrets available at /run/secrets/
   # IMPORTANT: This must be unconditional so sops-nix.service is always created,
   #            even when metadata.json doesn't exist at build time
